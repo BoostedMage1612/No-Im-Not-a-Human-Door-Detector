@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <AssemblyName>DoorDetector</AssemblyName>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Nullable>enable</Nullable>
+    <LangVersion>10</LangVersion>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <Deterministic>true</Deterministic>
+    <MelonLoaderPath Condition="'$(MelonLoaderPath)' == ''">../MelonLoader/net6/MelonLoader.dll</MelonLoaderPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Core.cs" /><Compile Include="Native.cs" /><Compile Include="Mod.cs" />
+    <Reference Include="MelonLoader"><HintPath>$(MelonLoaderPath)</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+</Project>

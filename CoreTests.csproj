@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework><OutputType>Exe</OutputType>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <Nullable>enable</Nullable><LangVersion>10</LangVersion>
+  </PropertyGroup>
+  <ItemGroup><Compile Include="Core.cs" /><Compile Include="CoreTests.cs" /></ItemGroup>
+</Project>

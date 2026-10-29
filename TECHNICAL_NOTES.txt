@@ -1,0 +1,199 @@
+Door Detector 0.1.3 - implementation and validation
+
+Build: Steam app 3180070, build 23967901. Unity 6000.3.10f1, IL2CPP metadata 39.
+GameAssembly SHA256:
+DE2C120D90E757916D74C298F264040DF0CDA1DDAA8C412E438AEEE72EB4DC3F
+Metadata SHA256:
+1773FD058179E577578E08E9B94155B53B029927967F6B189727D709435923C7
+
+Native entry points were identified from the supplied binaries using Cpp2IL
+2022.1.0-pre-release.21 and inspected as x64 machine code. Dummy C# method
+bodies from Cpp2IL were NOT treated as the game's implementation.
+
+The native CharactersManager.LetIn code adds the incoming guest before computing
+its Visitor population fraction. It reads CharacterSOData._isStatusRandomlyGenerated
+and inlines the random status assignment. Patching only GenerateStatus would
+miss that roll. This mod suppresses the inlined roll temporarily around the
+original LetIn call, restoring the random marker in a finally block. If admission
+is rejected for capacity, it restores the asset's earlier identity as well.
+Admitted identities are checked against both _isImposter and the game's saved
+AreCharactersImposters dictionary. It does not populate that dictionary for
+unadmitted guests, because that would affect other game logic.
+
+Native hooks (RVA, relative to GameAssembly base):
+00601FD0 EntranceRoom.ShowFullSizeCharacter       after: capture arrival
+00695520 CharactersManager.LetIn                around: preserve assigned identity
+006967D0 CharactersManager.Refuse               after: clear panel
+0067CD40 GameSaveDataHandler.LoadAll             before: restore reservation ledger
+0067CC70 GameSaveDataHandler.ClearSavedData      before: clear active ledger
+0067D6D0 GameSaveData.CreateJson                 after: bind snapshot
+0067DB10 GameSaveData.CreateReserveJson          after: bind snapshot
+0067D680 GameSaveData.ClearReserveData           after: bind snapshot
+
+Both full-file hashes and entry-point code bytes are checked before attaching
+any hooks. Reflection field lookups use IL2CPP metadata, not fixed field offsets.
+The bridge retains native objects with IL2CPP GC handles and calls methods using
+il2cpp_runtime_invoke. Method selection rejects ambiguous overloads. Win64 ABI
+callbacks include the hidden trailing MethodInfo pointer. No proprietary game
+assemblies or generated game wrappers are distributed in this package.
+
+Save-sidecar keys: SHA256 of canonicalized main/reserve JSON-value dictionaries;
+inside each snapshot: day and character ID. Sidecar snapshots are copied rather
+than sharing mutable dictionaries. Writes use a temporary file and replacement.
+Empty saves do not form a shared new-run identity. No snapshot is available
+before the game's first checkpoint; assignments in such an unsaved run are not
+recoverable after exiting without ever saving. Duplicate events on the same
+day reuse a result. The same character on another day gets a distinct key.
+
+Known limits requiring live validation:
+- The top-right panel layout and Windows installer upgrade execution.
+- All actual load paths, including reserve/backup loads and mid-dialogue loads.
+- Scripted or group encounters with extra identity rules.
+- Exile-and-replace: assignment uses population at arrival, before any later
+  eviction. The assigned result is kept, rather than recalculated at admission.
+- Compatibility with mods that change character identity or patch these methods.
+- End-to-end equality of the displayed verdict, saved flag and story behavior.
+The automatic admission check is useful evidence, not proof that every story
+branch interprets a character identically. This remains a test build.
+
+Validation performed here:
+- Compiled against .NET 6 reference assemblies and real MelonLoader 0.7.3 DLL;
+  final build: zero compiler warnings or errors.
+- 32 isolated logic checks: population thresholds, both coin outcomes, invalid
+  settings, unsupported IDs/groups, deterministic snapshot normalization,
+  duplicate knocks, process restart, checkpoint isolation, new runs, write
+  failure handling, random marker restoration, admission reroll suppression,
+  rejected admission restoration and exception cleanup.
+- Tests executed on .NET 8 (the code targets .NET 6); not executed in Unity.
+- 9 native-handle boundary checks and 21 display lifecycle checks described
+  below; both regression suites reproduce their respective old failure.
+- Four PowerShell scripts parsed without errors with tree-sitter-powershell.
+- Packaged ZIP entries and checksums verified.
+
+Rebuild with an installed .NET SDK and extracted official MelonLoader 0.7.3:
+  dotnet build DoorDetector.csproj -c Release -p:MelonLoaderPath="C:\path\MelonLoader\net6\MelonLoader.dll"
+  dotnet run --project CoreTests.csproj -c Release
+Building the mod does not require the game's proprietary binaries.
+
+Official dependency sources:
+https://github.com/LavaGang/MelonLoader/releases/tag/v0.7.3
+https://github.com/LavaGang/MelonLoader/tree/v0.7.3
+https://dotnetcli.blob.core.windows.net/dotnet/release-metadata/6.0/releases.json
+https://builds.dotnet.microsoft.com/dotnet/Runtime/6.0.36/dotnet-runtime-6.0.36-win-x64.zip
+
+0.1.1 startup crash correction
+-----------------------------
+The user's diagnostic archive shows two successful 0.1.0 hook-install messages,
+then the process stops shortly after the MelonLoader support component is
+created. It contains no native crash stack, so it does not prove every cause
+of the process termination.
+
+A concrete, independently reproducible fault exists in our 0.1.0 bridge:
+il2cpp_gchandle_new, il2cpp_gchandle_get_target, il2cpp_gchandle_free and the
+Handle member used uint. In this game these are pointer-sized handles.
+The native get-target implementation at RVA 0x519E70 preserves the incoming
+RCX pointer in RSI, masks its low bits and dereferences the resulting address.
+The free implementation at RVA 0x519740 does the same. A uint declaration loses
+the upper 32 bits and supplies an invalid address. The existing MelonLoader
+interop assembly also declares these APIs with nint, corroborating the ABI.
+
+0.1.1 uses IntPtr throughout. The regression fixture returns an opaque handle
+above 4 GiB from a compiled C library. The unchanged 0.1.0 Native.cs fails on
+its first target lookup; the new implementation passes all 9 boundary checks.
+The tests include full-width lookup/free, null handles, repeated disposal,
+disposed reads and 1,000 GUI-like allocation/disposal cycles. These execute
+on Linux x64 with .NET 8 and a native fixture, not inside the Windows game.
+No MelonLoader or Il2CppInterop version change is made for this correction.
+The unrelated Class::Init substitute warning alone was not treated as proof
+of a loader failure.
+
+The installer recognizes the exact previous DLL hash, backs it up outside
+Mods, replaces it, and atomically updates the install record while preserving
+the original uninstall ownership and restore target. The existing runtime,
+loader and reservations are retained. The collector now includes this game's
+Unity Player.log / Player-prev.log and game-specific Application crash events.
+
+Native-boundary test (Linux x64 example, .NET SDK and C compiler):
+  gcc -shared -fPIC -Wall -Wextra -Werror -o GameAssembly.dll handle_fixture.c
+  dotnet build NativeHandleTests.csproj -c Release
+  cp GameAssembly.dll bin/Release/net8.0/GameAssembly.dll
+  dotnet bin/Release/net8.0/NativeHandleTests.dll
+The fixture is test-only. Never copy its GameAssembly.dll to the game folder.
+
+0.1.2 door display correction
+----------------------------
+The supplied 0.1.1 full-cycle log captures seven arrivals: Neighbour (day 0),
+Esenin, Anxiety and Experienced (day 1), Mother, Leper and Dude (day 2).
+Each arrival is followed within about 20-50 ms by an Update exception:
+InvalidOperationException: Missing native object.
+All four randomized admissions also recorded matching reserved, runtime and
+saved identities. This log has no evidence of load-hook execution; it does not
+validate persistence through a later game restart.
+
+The display poll mistakenly read EntranceRoom._dialogManager (offset 0xC8).
+The native constructor at RVA 0x6026D0 does not initialize that field and
+passes the real manager to the ARoom base constructor at RVA 0x618800.
+EntranceRoom.OnDialogStarted at RVA 0x601A40 reads ARoom.DialogManager at
+offset 0x28. The latter is the correct field; it remains resolved by metadata
+name, not a hardcoded offset. The old poll eagerly followed the null field even
+when _isSomeoneKnockingNow was true. Its exception handler then cleared Known
+and permanently set PollFailed for that encounter.
+
+The new IsDoorVisible returns immediately while knocking and otherwise follows
+DialogManager -> _dialogView -> _isActive / _currentCharacter. Null presentation
+references preserve the current known verdict while the day and door-character
+checks still match. Another character's dialogue hides it. Poll exceptions
+show a temporary checking status, retain the identity reservation, and retry
+without flooding the log. Scene unload no longer latches the encounter into a
+failed state. Changed day/character values still clear stale encounters.
+
+The display regression runs the actual production OnUpdate through a native
+fixture with distinct derived/base fields and a null unused _dialogManager.
+Unchanged 0.1.1 fails the initial tutorial case; 0.1.2 passes 21 checks covering
+knocking, peephole open/close, missing manager/view/current character, unrelated
+dialogue, transient context failure and recovery, scene transition, tutorial
+skip, all six later recorded arrivals and stale-character cleanup. MelonLoader
+is replaced only in the test harness by MelonTestShim.cs. The delivered mod
+uses the real MelonLoader assembly.
+
+Display test (Linux x64 example, .NET SDK and C compiler):
+  gcc -shared -fPIC -Wall -Wextra -Werror -o GameAssembly.dll display_fixture.c
+  dotnet build DisplayTests.csproj -c Release
+  cp GameAssembly.dll bin/Release/net8.0/GameAssembly.dll
+  dotnet bin/Release/net8.0/DisplayTests.dll
+Run the native-handle and display fixtures separately: both deliberately use
+the test library name GameAssembly.dll. Never copy either fixture into the
+game folder. These checks do not execute Windows IL2CPP or the real game UI.
+
+The installer accepts the exact 0.1.0 and 0.1.1 DLL hashes and preserves the
+existing loader, runtime, reservations and original uninstall restore target.
+It keeps a rollback copy outside Mods and atomically updates the manifest.
+
+0.1.3 top-right panel and latest playtest review
+----------------------------------------------
+The 0.1.2 session in NINAH_Diagnostics_20261023_043626_617655.zip records nine
+arrivals across days 0-3, with a corresponding DISPLAY message for each.
+Five admissions verified the same reserved/live/saved identity: Esenin,
+Funny Guy, Hunter, Scammer and Big Lebowski; the last four are randomized.
+There are no detector errors in this session, and the new-run reset hook also
+executed. The included Windows crash events predate this session and belong
+to 0.1.0. The loader log reaches Preferences Saved on exit.
+
+Unity logs contain sound/tween and scene-cleanup exceptions, a Steam callback
+shutdown exception, and the existing interop substitute warning. Their stack
+traces do not identify DoorDetector. Without an unmodded comparison those logs
+do not prove their cause. There is no evidence here warranting a change to the
+identity logic. Save/reload has not been exercised in this session.
+
+Draw now calls UnityEngine.Screen.get_width through the existing runtime-invoke
+bridge. The method is present in this exact game's CoreModule metadata and
+returns System.Int32. GUI coordinates divide by the current 1.65 scale before
+subtracting panel width (310) and margin (12). The resulting right/top inset
+is about 20 pixels at normal window sizes. Width is read on every draw so a
+resolution/window change updates the anchor immediately. Narrow windows reduce
+the scale to fit the width; zero-width frames skip drawing. GUI.matrix is still
+restored in finally. The production mod remains compiled against real
+MelonLoader, and the test shim is excluded.
+
+This release also adds the exact 0.1.2 hash to the installer's upgrade list.
+Existing identity reservations and uninstall provenance are preserved.

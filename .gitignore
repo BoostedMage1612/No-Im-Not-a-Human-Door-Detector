@@ -1,0 +1,15 @@
+bin/
+obj/
+.vs/
+*.user
+*.suo
+*.dll
+*.pdb
+*.zip
+MelonLoader/
+Payload/
+Mods/
+UserData/
+*.log
+reservations.json
+install.json
